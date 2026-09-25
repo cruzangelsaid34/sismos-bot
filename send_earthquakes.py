@@ -8,8 +8,10 @@ avisos duplicados, guarda los IDs ya enviados en `sent_quakes.json`, que el
 workflow se encarga de "commitear" de vuelta al repositorio tras cada
 ejecución (ver .github/workflows/check-earthquakes.yml).
 
-Fuente de datos: https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php
-Cobertura: mundial. Actualiza el feed cada ~1 minuto.
+Fuente de datos: https://earthquake.usgs.gov/fdsnws/event/1/query (API de
+búsqueda del USGS, filtrado por caja delimitadora).
+Cobertura: solo México (ver MEXICO_BBOX). El feed del USGS se actualiza
+cada ~1 minuto.
 
 Requiere dos variables de entorno (Secrets en GitHub):
 - TELEGRAM_BOT_TOKEN
@@ -24,11 +26,18 @@ from pathlib import Path
 
 import requests
 
-# Feed "past hour, all magnitudes" — cualquier sismo del planeta, sin filtro
-# de magnitud, de la última hora. Como el workflow corre cada 5 minutos,
-# esta ventana de 1 hora da margen de sobra ante cualquier retraso de
-# GitHub Actions o del propio feed del USGS.
-USGS_FEED_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
+# En vez del feed global, consultamos el API de búsqueda del USGS con una
+# caja delimitadora (bounding box) que cubre México, para recibir solo
+# sismos dentro de ese territorio (incluye la zona de subducción del
+# Pacífico, donde ocurren la mayoría). Ajusta estos valores si quieres
+# ampliar o reducir el área.
+USGS_QUERY_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+MEXICO_BBOX = {
+    "minlatitude": 14.0,
+    "maxlatitude": 33.0,
+    "minlongitude": -118.0,
+    "maxlongitude": -86.0,
+}
 
 ESTADO_PATH = Path(__file__).parent / "sent_quakes.json"
 
@@ -63,7 +72,18 @@ def podar_antiguos(enviados: dict) -> dict:
 
 
 def obtener_sismos() -> list:
-    resp = requests.get(USGS_FEED_URL, timeout=30)
+    ahora = datetime.now(timezone.utc)
+    # Ventana de 1 hora hacia atrás: de sobra para no perder sismos si
+    # GitHub Actions o el feed del USGS se retrasan.
+    desde = ahora - timedelta(hours=1)
+
+    params = {
+        "format": "geojson",
+        "starttime": desde.strftime("%Y-%m-%dT%H:%M:%S"),
+        "endtime": ahora.strftime("%Y-%m-%dT%H:%M:%S"),
+        **MEXICO_BBOX,
+    }
+    resp = requests.get(USGS_QUERY_URL, params=params, timeout=30)
     resp.raise_for_status()
     return resp.json().get("features", [])
 
