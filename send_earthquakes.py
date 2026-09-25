@@ -120,6 +120,29 @@ def enviar_telegram(token: str, chat_id: str, texto: str, lat: float, lon: float
         },
         timeout=30,
     )
+
+    # --- DEBUG: mostrar siempre la respuesta completa de Telegram ---
+    # Aunque resp.ok sea True, esto nos dice a qué chat llegó realmente
+    # el mensaje (id numérico y, si es un canal/grupo con nombre, su título).
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+
+    print(f"🔎 DEBUG chat_id usado: {chat_id!r}")
+    print(f"🔎 DEBUG status HTTP: {resp.status_code}")
+    if data and data.get("ok"):
+        chat_info = data.get("result", {}).get("chat", {})
+        print(
+            "🔎 DEBUG Telegram confirma envío a -> "
+            f"id: {chat_info.get('id')}, "
+            f"tipo: {chat_info.get('type')}, "
+            f"título/usuario: {chat_info.get('title') or chat_info.get('username') or chat_info.get('first_name')}"
+        )
+    else:
+        print(f"🔎 DEBUG respuesta cruda de Telegram: {resp.text}")
+    # --- fin DEBUG ---
+
     if not resp.ok:
         print(f"⚠️ Error enviando mensaje: {resp.status_code} {resp.text}", file=sys.stderr)
         return False
