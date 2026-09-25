@@ -1,0 +1,43 @@
+name: Revisar sismos y avisar en Telegram
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sismos-telegram-bot
+  cancel-in-progress: false
+
+jobs:
+  revisar-sismos:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Revisar y enviar sismos nuevos
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python send_earthquakes.py
+
+      - name: Guardar el registro de sismos ya enviados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sent_quakes.json
+          git diff --staged --quiet || git commit -m "Actualizar registro de sismos enviados"
+          git pull --rebase
+          git push
