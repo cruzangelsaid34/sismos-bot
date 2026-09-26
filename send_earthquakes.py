@@ -18,6 +18,7 @@ Requiere dos variables de entorno (Secrets en GitHub):
 - TELEGRAM_CHAT_ID   (@usuario del canal o chat_id numérico)
 """
 
+import io
 import json
 import os
 import sys
@@ -25,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
+from gtts import gTTS
 
 # En vez del feed global, consultamos el API de búsqueda del USGS con una
 # caja delimitadora (bounding box) que cubre México, para recibir solo
@@ -127,6 +129,62 @@ def formatear_mensaje(feature: dict) -> str:
     return "\n".join(lineas)
 
 
+def formatear_texto_voz(feature: dict) -> str:
+    """Texto en español, pensado para leerse en voz alta (sin markdown/emojis)."""
+    props = feature["properties"]
+    coords = feature["geometry"]["coordinates"]
+    profundidad = coords[2]
+
+    mag = props.get("mag")
+    mag_txt = f"{mag:.1f}" if isinstance(mag, (int, float)) else "desconocida"
+    lugar = props.get("place", "ubicación desconocida")
+    tsunami = props.get("tsunami", 0)
+
+    partes = [
+        "Alerta sísmica.",
+        f"Magnitud {mag_txt}, {lugar}.",
+        f"Profundidad de {profundidad:.0f} kilómetros.",
+    ]
+    if tsunami:
+        partes.append("Alerta de posible tsunami asociada.")
+
+    return " ".join(partes)
+
+
+def generar_audio_voz(texto: str) -> bytes:
+    """Genera un audio MP3 en memoria a partir de texto, usando gTTS."""
+    buffer = io.BytesIO()
+    gTTS(text=texto, lang="es").write_to_fp(buffer)
+    buffer.seek(0)
+    return buffer.read()
+
+
+def enviar_voz_telegram(token: str, chat_id: str, feature: dict) -> bool:
+    """Genera y envía el aviso como mensaje de voz (sendVoice acepta MP3)."""
+    base = f"https://api.telegram.org/bot{token}"
+    texto_voz = formatear_texto_voz(feature)
+
+    try:
+        audio_bytes = generar_audio_voz(texto_voz)
+    except Exception as exc:  # gTTS puede fallar por red/rate limit
+        print(f"⚠️ No se pudo generar el audio de voz: {exc}", file=sys.stderr)
+        return False
+
+    resp = requests.post(
+        f"{base}/sendVoice",
+        data={"chat_id": chat_id},
+        files={"voice": ("alerta.mp3", audio_bytes, "audio/mpeg")},
+        timeout=30,
+    )
+
+    if not resp.ok:
+        print(f"⚠️ Error enviando voz: {resp.status_code} {resp.text}", file=sys.stderr)
+        return False
+
+    print("✅ Voz enviada correctamente")
+    return True
+
+
 def enviar_telegram(token: str, chat_id: str, texto: str, lat: float, lon: float):
     base = f"https://api.telegram.org/bot{token}"
 
@@ -176,11 +234,43 @@ def enviar_telegram(token: str, chat_id: str, texto: str, lat: float, lon: float
     return True
 
 
+def sismo_de_prueba() -> dict:
+    """Sismo ficticio para probar el flujo completo (texto + voz) sin
+    esperar a uno real y sin tocar sent_quakes.json."""
+    ahora_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    return {
+        "id": "prueba-manual",
+        "properties": {
+            "mag": 5.4,
+            "magType": "mb",
+            "place": "45 km al suroeste de Acapulco, México (PRUEBA)",
+            "url": "https://earthquake.usgs.gov/",
+            "tsunami": 0,
+            "alert": None,
+            "time": ahora_ms,
+        },
+        "geometry": {"coordinates": [-99.9, 16.6, 12.0]},
+    }
+
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
         sys.exit("❌ Faltan TELEGRAM_BOT_TOKEN y/o TELEGRAM_CHAT_ID")
+
+    if os.environ.get("TEST_MODE", "").strip().lower() in ("1", "true"):
+        print("🧪 TEST_MODE activo: enviando sismo de prueba (no se guarda en sent_quakes.json)")
+        feature = sismo_de_prueba()
+        lon, lat = feature["geometry"]["coordinates"][:2]
+        mensaje = formatear_mensaje(feature)
+        ok = enviar_telegram(token, chat_id, mensaje, lat, lon)
+        if ok:
+            print("✅ Texto de prueba enviado")
+            enviar_voz_telegram(token, chat_id, feature)
+        else:
+            print("❌ No se pudo enviar el texto de prueba", file=sys.stderr)
+        return
 
     enviados = podar_antiguos(cargar_enviados())
     sismos = obtener_sismos()
@@ -203,6 +293,9 @@ def main():
         if ok:
             enviados[qid] = datetime.now(timezone.utc).isoformat()
             print(f"✅ Enviado: {qid} — {feature['properties'].get('place')}")
+            # El aviso de voz es un extra: si falla, no reintentamos ni
+            # bloqueamos el registro del sismo como ya avisado.
+            enviar_voz_telegram(token, chat_id, feature)
         else:
             print(f"❌ No se pudo enviar: {qid}", file=sys.stderr)
 
