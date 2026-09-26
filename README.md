@@ -1,81 +1,55 @@
-# Alertas de sismos → Telegram (cualquier magnitud, mundial)
+# MichiHub News Bot 🐾📰
 
-Avisa en tu canal de Telegram cada vez que ocurre un sismo en cualquier
-parte del mundo, sin importar la magnitud, usando el feed público y
-gratuito del USGS (Servicio Geológico de EE. UU.).
+Bot de Telegram que revisa noticias mundiales en tiempo real y las publica
+en un canal como una **imagen** con el diseño de MichiHub (mismo logotipo,
+colores y tipografía de la app), en vez de solo texto plano.
 
-## ⚠️ Importante: qué tan "en tiempo real" es esto
-
-GitHub Actions gratis no permite ejecutar algo verdaderamente instantáneo
-las 24 horas. Este bot corre **cada 5 minutos** (el mínimo práctico), y
-ocasionalmente GitHub puede retrasar unos minutos más la ejecución si hay
-mucha carga en sus servidores. En la práctica vas a recibir el aviso
-dentro de los primeros 5-10 minutos después de ocurrido el sismo, no al
-instante. Para algo 100% instantáneo se necesitaría un servidor propio
-corriendo permanentemente (tiene costo).
+Corre automáticamente cada 15 minutos vía GitHub Actions — no necesitas
+tener ninguna computadora prendida.
 
 ## Cómo configurarlo
 
-### 1. Sube esta carpeta a un repositorio de GitHub
-Incluye `send_earthquakes.py`, `requirements.txt`, `sent_quakes.json` y la
-carpeta `.github/`.
+### 1. Consigue tu API key gratuita de GNews
 
-### 2. Agrega el bot como administrador de tu canal
-Tu canal → Administradores → Agregar administrador → tu bot → permiso de
-"Publicar mensajes".
+1. Entra a [gnews.io](https://gnews.io/) y crea una cuenta gratis (no pide tarjeta).
+2. Copia la API key de tu panel — el plan gratuito da 100 peticiones al día,
+   de sobra para revisar cada 15 minutos.
 
-### 3. Obtén el `chat_id` del canal
-- Canal público: `@tunombredecanal`.
-- Canal privado: reenvía un mensaje del canal a
-  [@userinfobot](https://t.me/userinfobot) para obtener el ID numérico.
+### 2. Agrega los 3 secretos en GitHub
 
-### 4. Configura los Secrets en GitHub
-Repositorio → **Settings → Secrets and variables → Actions → New repository
-secret**:
+En tu repositorio: **Settings → Secrets and variables → Actions → New repository secret**,
+agrega estos tres:
 
-| Nombre                | Valor                                    |
-|------------------------|-------------------------------------------|
-| `TELEGRAM_BOT_TOKEN`   | El token de tu bot (dado por @BotFather) |
-| `TELEGRAM_CHAT_ID`     | El @usuario o ID numérico del canal      |
+| Nombre | Valor |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | El token de tu bot (te lo da @BotFather) |
+| `TELEGRAM_CHAT_ID` | El @usuario o ID numérico de tu canal |
+| `GNEWS_API_KEY` | La API key que copiaste de GNews |
 
-⚠️ Si ya compartiste un token en algún chat, **revócalo primero** con
-@BotFather (`/mybots` → tu bot → API Token → Revoke) y usa el nuevo token
-solo como Secret.
+Si ya tenías configurados `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` del bot
+de sismos, no hace falta tocarlos — solo agrega el nuevo `GNEWS_API_KEY`.
 
-### 5. Habilita permisos de escritura para Actions
-El bot necesita poder guardar `sent_quakes.json` de vuelta al repo (para no
-enviar el mismo sismo dos veces). Ve a **Settings → Actions → General →
-Workflow permissions** y selecciona **"Read and write permissions"**.
+### 3. Listo
 
-### 6. Pruébalo
-Pestaña **Actions** → "Revisar sismos y avisar en Telegram" →
-**Run workflow**.
+El workflow `.github/workflows/check-news.yml` ya corre solo cada 15
+minutos. También puedes probarlo manualmente desde la pestaña **Actions**
+de GitHub → selecciona "Revisar noticias y avisar en Telegram" → **Run workflow**.
 
 ## Cómo funciona
 
-1. Cada 5 minutos, descarga el feed
-   `all_hour.geojson` del USGS: todos los sismos del planeta —
-   cualquier magnitud, incluso las negativas — de la última hora.
-2. Compara cada sismo contra `sent_quakes.json` (los IDs ya avisados) para
-   no duplicar mensajes.
-3. Envía un mensaje de texto por cada sismo nuevo, con magnitud,
-   profundidad, ubicación, hora UTC y enlace al detalle en USGS, más un pin
-   de ubicación en el mapa de Telegram, y además un mensaje de **voz**
-   (audio generado automáticamente con gTTS) leyendo la magnitud, el lugar
-   y la profundidad. Si la generación o el envío de la voz falla (por
-   ejemplo por un límite temporal de Google), el sismo igual queda
-   marcado como avisado gracias al mensaje de texto, y no se reintenta el
-   audio.
-4. Guarda los nuevos IDs en `sent_quakes.json` y el propio workflow hace
-   commit y push del archivo actualizado, para que la próxima ejecución
-   sepa qué ya se avisó. Los registros de más de 6 horas se eliminan
-   automáticamente para que el archivo no crezca sin control.
+1. Cada 15 minutos, `send_news.py` le pregunta a la API de GNews por las
+   últimas noticias mundiales en español.
+2. Compara contra `sent_news.json` para no repetir una noticia ya enviada.
+3. Por cada noticia nueva, genera una imagen (usando el diseño de
+   `assets/plantilla.html`, con el logo de MichiHub) con un navegador sin
+   interfaz (Playwright).
+4. Envía esa imagen al canal de Telegram configurado, con el titular y el
+   link a la fuente en el pie de foto.
 
-## Ajustar el filtro (opcional)
-Si en algún momento quieres limitar por magnitud mínima en vez de recibir
-absolutamente todos los sismos (incluyendo los muy pequeños, que pueden ser
-bastante frecuentes), cambia en `send_earthquakes.py` la URL
-`USGS_FEED_URL` por una de estas variantes:
-- `.../summary/2.5_hour.geojson` → solo magnitud 2.5+
-- `.../summary/4.5_hour.geojson` → solo magnitud 4.5+
-- `.../summary/significant_hour.geojson` → solo sismos "significativos"
+## Archivos
+
+- `send_news.py` — el bot en sí.
+- `assets/plantilla.html` — el diseño visual de la imagen (edítalo si quieres cambiar el look).
+- `assets/logo.png` — el logotipo de MichiHub usado en la imagen.
+- `sent_news.json` — registro de noticias ya enviadas (se actualiza solo).
+- `.github/workflows/check-news.yml` — la automatización que lo corre cada 15 min.

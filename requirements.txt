@@ -1,2 +1,2 @@
 requests>=2.31.0
-gTTS>=2.5.1
+playwright>=1.40.0
