@@ -22,6 +22,7 @@ import io
 import json
 import os
 import sys
+import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -170,12 +171,16 @@ def enviar_voz_telegram(token: str, chat_id: str, feature: dict) -> bool:
         print(f"⚠️ No se pudo generar el audio de voz: {exc}", file=sys.stderr)
         return False
 
-    resp = requests.post(
-        f"{base}/sendVoice",
-        data={"chat_id": chat_id},
-        files={"voice": ("alerta.mp3", audio_bytes, "audio/mpeg")},
-        timeout=30,
-    )
+    try:
+        resp = requests.post(
+            f"{base}/sendVoice",
+            data={"chat_id": chat_id},
+            files={"voice": ("alerta.mp3", audio_bytes, "audio/mpeg")},
+            timeout=30,
+        )
+    except Exception as exc:  # error de red al llamar a Telegram
+        print(f"⚠️ Error de red enviando voz: {exc}", file=sys.stderr)
+        return False
 
     if not resp.ok:
         print(f"⚠️ Error enviando voz: {resp.status_code} {resp.text}", file=sys.stderr)
@@ -267,7 +272,11 @@ def main():
         ok = enviar_telegram(token, chat_id, mensaje, lat, lon)
         if ok:
             print("✅ Texto de prueba enviado")
-            enviar_voz_telegram(token, chat_id, feature)
+            try:
+                enviar_voz_telegram(token, chat_id, feature)
+            except Exception:
+                print("⚠️ Fallo inesperado enviando la voz de prueba:", file=sys.stderr)
+                traceback.print_exc()
         else:
             print("❌ No se pudo enviar el texto de prueba", file=sys.stderr)
         return
@@ -295,7 +304,11 @@ def main():
             print(f"✅ Enviado: {qid} — {feature['properties'].get('place')}")
             # El aviso de voz es un extra: si falla, no reintentamos ni
             # bloqueamos el registro del sismo como ya avisado.
-            enviar_voz_telegram(token, chat_id, feature)
+            try:
+                enviar_voz_telegram(token, chat_id, feature)
+            except Exception:
+                print("⚠️ Fallo inesperado enviando la voz:", file=sys.stderr)
+                traceback.print_exc()
         else:
             print(f"❌ No se pudo enviar: {qid}", file=sys.stderr)
 

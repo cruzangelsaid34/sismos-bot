@@ -60,7 +60,12 @@ Pestaña **Actions** → "Revisar sismos y avisar en Telegram" →
    no duplicar mensajes.
 3. Envía un mensaje de texto por cada sismo nuevo, con magnitud,
    profundidad, ubicación, hora UTC y enlace al detalle en USGS, más un pin
-   de ubicación en el mapa de Telegram.
+   de ubicación en el mapa de Telegram, y además un mensaje de **voz**
+   (audio generado automáticamente con gTTS) leyendo la magnitud, el lugar
+   y la profundidad. Si la generación o el envío de la voz falla (por
+   ejemplo por un límite temporal de Google), el sismo igual queda
+   marcado como avisado gracias al mensaje de texto, y no se reintenta el
+   audio.
 4. Guarda los nuevos IDs en `sent_quakes.json` y el propio workflow hace
    commit y push del archivo actualizado, para que la próxima ejecución
    sepa qué ya se avisó. Los registros de más de 6 horas se eliminan
